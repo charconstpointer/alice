@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/charconstpointer/alice/pr"
@@ -56,13 +57,29 @@ func (a *App) AddSource(source Source) error {
 }
 
 func (a *App) Find(phrase string) ([]string, error) {
+	resCh := make(chan string)
 	var results []string
+	var wg sync.WaitGroup
 	for _, s := range a.sources {
-		res, err := s.Find(context.Background(), phrase)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, res...)
+		wg.Add(1)
+		go func(s Source) {
+			defer wg.Done()
+			results, err := s.Find(context.Background(), phrase)
+			if err != nil {
+				log.Printf("failed to find: %v", err)
+			}
+			for _, r := range results {
+				resCh <- r
+			}
+		}(s)
 	}
+	go func() {
+		wg.Wait()
+		close(resCh)
+	}()
+	for r := range resCh {
+		results = append(results, r)
+	}
+
 	return results, nil
 }
