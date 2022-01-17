@@ -1,33 +1,35 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/charconstpointer/alice/pr"
+	"github.com/charconstpointer/alice/wiki"
+	"github.com/lithammer/fuzzysearch/fuzzy"
 )
 
 func main() {
 	app := App{}
-	src := pr.NewSource(http.Client{Timeout: 5 * time.Second})
-	err := app.AddSource(src)
+	prSrc := pr.NewSource(http.Client{Timeout: 5 * time.Second})
+	wikiSrc := wiki.NewSource(http.Client{Timeout: 5 * time.Second})
+
+	err := app.AddSources(prSrc, wikiSrc)
 	if err != nil {
 		log.Fatalf("failed to add source: %v", err)
 	}
 
 	for {
 		// scan os stdin input
-		var input string
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		input = scanner.Text()
-		results, err := app.Find(input)
+		// var input string
+		// scanner := bufio.NewScanner(os.Stdin)
+		// scanner.Scan()
+		// input = scanner.Text()
+		results, err := app.Find("kosa")
 		if err != nil {
 			log.Printf("failed to find: %v", err)
 			continue
@@ -46,12 +48,24 @@ type Source interface {
 	Find(context.Context, string) ([]string, error)
 }
 
-func (a *App) AddSource(source Source) error {
-	for _, s := range a.sources {
-		if s == source {
-			return fmt.Errorf("source already exists")
+func (a *App) AddSources(source ...Source) error {
+	for _, s := range source {
+		err := a.AddSource(s)
+		if err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+func (a *App) AddSource(source Source) error {
+	//check if source is already added
+	for _, s := range a.sources {
+		if s == source {
+			return fmt.Errorf("source already added")
+		}
+	}
+
 	a.sources = append(a.sources, source)
 	return nil
 }
@@ -81,5 +95,9 @@ func (a *App) Find(phrase string) ([]string, error) {
 		results = append(results, r)
 	}
 
-	return results, nil
+	final := fuzzy.Find(phrase, results)
+	if len(final) == 0 {
+		return results, fmt.Errorf("no results")
+	}
+	return final[:3], nil
 }
